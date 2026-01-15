@@ -1,0 +1,54 @@
+# QED (Quantitative Estimate of Drug-likeness) Configuration
+
+# General Settings
+device: 'cuda'
+seed: 42
+run: 0
+save: True
+log_dir: './checkpoints/soo'
+include_nblocks: False
+num_samples: 1000
+floatX: 'float32'
+sample_iterations: 1000
+bpath: './gflownet/data/blocks_105.json'
+test_mols: './gflownet/data/test_mols_6062.pkl.gz'
+wandb_project: 'GFlowMoA_SOO'
+# Objectives
+objectives: 'gsk3b'
+
+# GFlowNet Settings
+min_blocks: 2
+max_blocks: 8
+num_iterations: 30000
+criterion: 'FM'
+learning_rate: 0.0005
+Z_learning_rate: 0.005
+clip_grad: 0.0
+trajectories_mbsize: 8
+offline_mbsize: 0
+hindsight_mbsize: 0
+reward_min: 0.1
+reward_norm: 0.5
+reward_bin: 0.5
+reward_exp: 8
+reward_exp_ramping: 0
+
+# TB Hyperparameters
+partition_init: 30
+
+# FM Hyperparameters
+log_reg_c: 0.00000000000000001024  # (0.01/0.2)**12
+balanced_loss: true
+leaf_coef: 10
+pruned_coef: 0.1
+
+# Architecture
+repr_type: 'block_graph'
+model_version: 'v4'
+num_conv_steps: 8
+nemb: 256
+weight_decay: 0
+random_action_prob: 0.05
+bootstrap_tau: 0
+ray_hidden_dim: 100
+logit_clipping: 0.0

@@ -1,0 +1,109 @@
+{
+    "os": "Linux-5.4.0-150-generic-x86_64-with-glibc2.17",
+    "python": "3.8.20",
+    "heartbeatAt": "2026-01-15T07:18:20.433370",
+    "startedAt": "2026-01-15T07:18:19.583022",
+    "docker": null,
+    "cuda": null,
+    "args": [
+        "--config",
+        "./configs/JNK3.yaml",
+        "--seed",
+        "1",
+        "--log_dir",
+        "./checkpoints/LeakGFN/seed_1"
+    ],
+    "state": "running",
+    "program": "train.py",
+    "codePathLocal": "train.py",
+    "codePath": "train.py",
+    "host": "pinnacle",
+    "username": "khh",
+    "executable": "/home/khh/miniforge3/envs/GFN-MoA/bin/python",
+    "cpu_count": 6,
+    "cpu_count_logical": 12,
+    "cpu_freq": {
+        "current": 2400.5869166666666,
+        "min": 800.0,
+        "max": 4700.0
+    },
+    "cpu_freq_per_core": [
+        {
+            "current": 2400.473,
+            "min": 800.0,
+            "max": 4700.0
+        },
+        {
+            "current": 2400.613,
+            "min": 800.0,
+            "max": 4700.0
+        },
+        {
+            "current": 2400.056,
+            "min": 800.0,
+            "max": 4700.0
+        },
+        {
+            "current": 2400.003,
+            "min": 800.0,
+            "max": 4700.0
+        },
+        {
+            "current": 2400.011,
+            "min": 800.0,
+            "max": 4700.0
+        },
+        {
+            "current": 2400.107,
+            "min": 800.0,
+            "max": 4700.0
+        },
+        {
+            "current": 2400.734,
+            "min": 800.0,
+            "max": 4700.0
+        },
+        {
+            "current": 2401.125,
+            "min": 800.0,
+            "max": 4700.0
+        },
+        {
+            "current": 2400.303,
+            "min": 800.0,
+            "max": 4700.0
+        },
+        {
+            "current": 2402.149,
+            "min": 800.0,
+            "max": 4700.0
+        },
+        {
+            "current": 2400.982,
+            "min": 800.0,
+            "max": 4700.0
+        },
+        {
+            "current": 2400.487,
+            "min": 800.0,
+            "max": 4700.0
+        }
+    ],
+    "disk": {
+        "/": {
+            "total": 2749.074417114258,
+            "used": 2350.8668670654297
+        }
+    },
+    "gpu": "NVIDIA GeForce RTX 3090",
+    "gpu_count": 1,
+    "gpu_devices": [
+        {
+            "name": "NVIDIA GeForce RTX 3090",
+            "memory_total": 25769803776
+        }
+    ],
+    "memory": {
+        "total": 62.740318298339844
+    }
+}
