@@ -1,1 +1,2 @@
-from .gfn import FMGFlowNet, TBGFlowNet, MOReinforce
+from .gfn import FMGFlowNet, TBGFlowNet, SubTBGFlowNet, MOReinforce
+from .leakgfn import LeakFMGFlowNet

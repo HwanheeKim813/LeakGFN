@@ -62,13 +62,12 @@ class FMGFlowNet(nn.Module):
         self.do_nblocks_reg = False
         self.max_blocks = args.max_blocks
         self.leaf_coef = args.leaf_coef
-        self.pruned_coef = args.pruned_coef
         self.clip_grad = args.clip_grad
         # self.score_criterion = nn.MSELoss(reduction='none')
         self.score_criterion = nn.MSELoss()
 
-    def forward(self, graph_data, vec_data=None, do_stems=True, return_leaky=False):
-        return self.model(graph_data, vec_data, do_stems, return_leaky)
+    def forward(self, graph_data, vec_data=None, do_stems=True):
+        return self.model(graph_data, vec_data, do_stems)
 
     def train_step(self, p, pb, a, r, s, d, mols, i):
         loss, term_loss, flow_loss = self.FMLoss(p, pb, a, r, s, d)
@@ -88,31 +87,32 @@ class FMGFlowNet(nn.Module):
         # roughly mbsize * H (H is variable) transitions
         ntransitions = r.shape[0]
         # state outputs
-        (stem_out_s, stem_out_s_full), mol_out_s = self.model(s, return_leaky=True) # log(F)
+        stem_out_s, mol_out_s = self.model(s) # log(F)
         # parents of the state outputs
-        (stem_out_p, stem_out_p_full), mol_out_p = self.model(p, return_leaky=True)
+        stem_out_p, mol_out_p = self.model(p)
         # index parents by their corresponding actions
         qsa_p = self.model.index_output_by_action(
-            p, stem_out_p_full, mol_out_p[:, 0], a)
+            p, stem_out_p, mol_out_p[:, 0], a)
         # then sum the parents' contribution, this is the inflow
         exp_inflow = (torch.zeros((ntransitions,), device=qsa_p.device, dtype=qsa_p.dtype)
                       .index_add_(0, pb, torch.exp(qsa_p)))  # pb is the parents' batch index
         inflow = torch.log(exp_inflow + self.log_reg_c)
-        exp_outflow = self.model.sum_output(s, torch.exp(stem_out_s_full), torch.exp(mol_out_s[:, 0]))
-        outflow_plus_r = torch.log(self.log_reg_c + r * (d!=0) + exp_outflow * (d==0))
-
+        # sum the state's Q(s,a), this is the outflow
+        exp_outflow = self.model.sum_output(s, torch.exp(
+            stem_out_s), torch.exp(mol_out_s[:, 0]))
+        # include reward and done multiplier, then take the log
+        # we're guarenteed that r > 0 iff d = 1, so the log always works
+        outflow_plus_r = torch.log(self.log_reg_c + r + exp_outflow * (1-d))
         if self.do_nblocks_reg:
             losses = _losses = ((inflow - outflow_plus_r) /
                                 (s.nblocks * self.max_blocks)).pow(2)
         else:
             losses = _losses = (inflow - outflow_plus_r).pow(2)
-            # pruned_loss += (torch.exp(mol_out_s[:, 0][d==1]) - torch.log(self.log_reg_c + r)[d==1]).pow(2)
-            # pruned_loss = (outflow_plus_r_pruned-torch.log(torch.tensor(self.log_reg_c))).pow(2)
-            # pruned_losses = outflow_plus_r_pruned.pow(2)
 
-        term_loss = (losses * (d!=0)).sum() / ((d!=0).sum() + 1e-20)  # terminal nodes
-        flow_loss = (losses * (d==0)).sum() / ((d==0).sum() + 1e-20)  # non-terminal nodes
-
+        term_loss = (losses * d).sum() / (d.sum() + 1e-20)  # terminal nodes
+        flow_loss = (losses * (1-d)).sum() / \
+            ((1-d).sum() + 1e-20)  # non-terminal nodes
+        
         if self.balanced_loss:
             loss = term_loss * self.leaf_coef + flow_loss
         else:
@@ -143,8 +143,8 @@ class TBGFlowNet(nn.Module):
             {'params': [self.logZ], 'lr': z_lr}
         ], weight_decay=args.weight_decay)
 
-    def forward(self, graph_data, vec_data=None, do_stems=True, return_leaky=False):
-        return self.model(graph_data, vec_data, do_stems, return_leaky)
+    def forward(self, graph_data, vec_data=None, do_stems=True):
+        return self.model(graph_data, vec_data, do_stems)
     
     def clamp_logZ(self):
         """Clamp logZ to minimum value to prevent collapse."""
@@ -193,8 +193,7 @@ class TBGFlowNet(nn.Module):
             lens: Length of each trajectory
         """
         # Forward policy log probability
-        # stem_out_s, mol_out_s = self.model(s)
-        (_, stem_out_s), mol_out_s = self.model(s, return_leaky=True)
+        stem_out_s, mol_out_s = self.model(s)
         forward_logp = -self.model.action_negloglikelihood(
             s, a, stem_out_s, mol_out_s)
 
@@ -257,8 +256,8 @@ class SubTBGFlowNet(nn.Module):
             {'params': [self.logZ], 'lr': z_lr}
         ], weight_decay=args.weight_decay)
 
-    def forward(self, graph_data, vec_data=None, do_stems=True, return_leaky=False):
-        return self.model(graph_data, vec_data, do_stems, return_leaky)
+    def forward(self, graph_data, vec_data=None, do_stems=True):
+        return self.model(graph_data, vec_data, do_stems)
     
     def clamp_logZ(self):
         """Clamp logZ to minimum value to prevent collapse."""
@@ -313,8 +312,7 @@ class SubTBGFlowNet(nn.Module):
         num_trajs = lens.shape[0]
         
         # Forward pass to get policy logits and flow predictions
-        # stem_out_s, mol_out_s = self.model(s)
-        (_, stem_out_s), mol_out_s = self.model(s, return_leaky=True)
+        stem_out_s, mol_out_s = self.model(s)
         # Forward policy log probability: log P_F(s → s')
         log_pf = -self.model.action_negloglikelihood(s, a, stem_out_s, mol_out_s)
         
@@ -467,12 +465,7 @@ class MOReinforce(nn.Module):
         self.model = make_model(args, self.mdp, is_proxy=False)
         self.opt = torch.optim.Adam(self.model.parameters(), args.learning_rate, weight_decay=args.weight_decay)
 
-    def forward(self, graph_data, vec_data=None, do_stems=True, return_leaky=False):
-        """Forward pass with optional leaky output for compatibility."""
-        if return_leaky:
-            out = self.model(graph_data, vec_data, do_stems)
-            stem_out, mol_out = out
-            return (stem_out, stem_out), mol_out
+    def forward(self, graph_data, vec_data=None, do_stems=True):
         return self.model(graph_data, vec_data, do_stems)
 
     def train_step(self, s, a, w, r, d, n, mols, idc, lens, i):
@@ -513,8 +506,7 @@ class MOReinforce(nn.Module):
             idc: Trajectory indices
         """
         # Forward policy log probability
-        # stem_out_s, mol_out_s = self.model(s)
-        (_, stem_out_s), mol_out_s = self.model(s, return_leaky=True)
+        stem_out_s, mol_out_s = self.model(s)
         logits = -self.model.action_negloglikelihood(
             s, a, stem_out_s, mol_out_s)
 

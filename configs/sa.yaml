@@ -2,17 +2,17 @@
 
 # General Settings
 device: 'cuda'
-seed: 42
+seed: 1
 run: 0
 save: True
-log_dir: './checkpoints/soo'
+log_dir: './checkpoints'
 include_nblocks: False
 num_samples: 1000
 floatX: 'float32'
 sample_iterations: 1000
 bpath: './gflownet/data/blocks_105.json'
 test_mols: './gflownet/data/test_mols_6062.pkl.gz'
-wandb_project: 'GFlowMoA_SOO'
+wandb_project: 'LeakGFN'
 # Objectives
 objectives: 'sa'
 
@@ -20,7 +20,7 @@ objectives: 'sa'
 min_blocks: 2
 max_blocks: 8
 num_iterations: 10000
-criterion: 'FM'
+criterion: 'LeakGFN'
 learning_rate: 0.0005
 Z_learning_rate: 0.005
 clip_grad: 0

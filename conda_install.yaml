@@ -1,0 +1,10 @@
+name: LeakGFN
+channels:
+  - conda-forge
+dependencies:
+  - pylint
+  - pytables
+  - python=3.8
+  - mypy
+  - scikit-learn=0.22
+  - wandb

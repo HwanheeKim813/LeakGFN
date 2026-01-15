@@ -24,7 +24,7 @@ from rdkit.Chem import AllChem
 from rdkit import DataStructs
 
 from gflownet.mol_mdp_ext import MolMDPExtended, BlockMoleculeDataExtended
-from gflownet.generator.gfn_leak_loss_v2 import TBGFlowNet, FMGFlowNet, MOReinforce, SubTBGFlowNet
+from gflownet.generator import LeakFMGFlowNet, TBGFlowNet, FMGFlowNet, MOReinforce, SubTBGFlowNet
 from gflownet.oracle.oracle import Oracle
 from gflownet.utils.metrics import evaluate, compute_correlation
 from gflownet.utils.utils import set_random_seed
@@ -200,7 +200,7 @@ class RolloutWorker:
         # Set ignore_parents based on criterion
         if args.criterion in ['TB', 'Reinforce', 'SubTB']:
             self.ignore_parents = True
-        elif args.criterion == 'FM':
+        elif args.criterion in ['FM', 'LeakGFN']:
             self.ignore_parents = False
         else:
             raise ValueError(f"Unknown criterion: {args.criterion}")
@@ -386,7 +386,7 @@ class RolloutWorker:
             Tuple of (action, statistics)
         """
         s = self.mdp.mols2batch([self.mdp.mol2repr(m)])
-        (s_o, s_o_full), m_o = generator(s, do_stems=True, return_leaky=True)
+        s_o, m_o = generator(s, do_stems=True)
         
         # Prevent stopping when below minimum blocks
         if t < min_blocks:
@@ -395,21 +395,17 @@ class RolloutWorker:
         logits = torch.cat([m_o.reshape(-1), s_o.reshape(-1)])
         
         # Sample action
-        if use_rand_policy and self.train_rng.uniform() < self.random_action_prob:
-            logits = torch.cat([m_o.reshape(-1), s_o_full.reshape(-1)])
-        cat = torch.distributions.Categorical(logits=logits)
-        action = cat.sample().item()
-        # if use_rand_policy and self.random_action_prob > 0:
-        #     if self.train_rng.uniform() < self.random_action_prob:
-        #         action = self.train_rng.randint(
-        #             int(t < min_blocks), logits.shape[0]
-        #         )
-        #     else:
-        #         cat = torch.distributions.Categorical(logits=logits)
-        #         action = cat.sample().item()
-        # else:
-        #     cat = torch.distributions.Categorical(logits=logits)
-        #     action = cat.sample().item()
+        if use_rand_policy and self.random_action_prob > 0:
+            if self.train_rng.uniform() < self.random_action_prob:
+                action = self.train_rng.randint(
+                    int(t < min_blocks), logits.shape[0]
+                )
+            else:
+                cat = torch.distributions.Categorical(logits=logits)
+                action = cat.sample().item()
+        else:
+            cat = torch.distributions.Categorical(logits=logits)
+            action = cat.sample().item()
         
         # Collect statistics
         q = torch.cat([m_o.reshape(-1), s_o.reshape(-1)])
@@ -443,18 +439,17 @@ class RolloutWorker:
             self.logger.error(f"Failed to add block: {e}")
             # Return terminal state on error
             r, raw_r = self._get_reward(m_old)
-            sample.append(((m_old,), ((-1, 0),), r, m_old, 2))
+            sample.append(((m_old,), ((-1, 0),), r, m_old, 1))
             return sample, True
         
         # Check if molecule is complete
         if (len(m_new.blocks) and not len(m_new.stems)) or t == max_blocks - 1:
-            done_type = 2 if len(m_new.stems) == 0 else 1
             r, raw_r = self._get_reward(m_new)
             if self.ignore_parents:
-                sample.append(((m_old,), (action_tuple,), r, m_new, done_type))
+                sample.append(((m_old,), (action_tuple,), r, m_new, 1))
             else:
                 parents, actions = zip(*self.mdp.parents(m_new))
-                sample.append((parents, actions, r, m_new, done_type))
+                sample.append((parents, actions, r, m_new, 1))
             return sample, True
         else:
             if self.ignore_parents:
@@ -623,6 +618,85 @@ class RolloutWorker:
             
             self.logger.info("All sampling threads stopped")
 
+class RolloutWorker_Leak(RolloutWorker):
+    """
+    Worker class for generating molecular trajectories and computing rewards.
+    Thread-safe implementation with proper memory management.
+    """    
+    def _get_action(self, generator, m: BlockMoleculeDataExtended, 
+                    t: int, min_blocks: int, use_rand_policy: bool) -> Tuple[int, Tuple]:
+        """
+        Get action from generator with proper handling.
+        
+        Returns:
+            Tuple of (action, statistics)
+        """
+        s = self.mdp.mols2batch([self.mdp.mol2repr(m)])
+        (s_o, s_o_full), m_o = generator(s, do_stems=True, return_leaky=True)
+        
+        # Prevent stopping when below minimum blocks
+        if t < min_blocks:
+            m_o = m_o * 0 - 1000
+        
+        logits = torch.cat([m_o.reshape(-1), s_o.reshape(-1)])
+        
+        # Sample action
+        if use_rand_policy and self.train_rng.uniform() < self.random_action_prob:
+            logits = torch.cat([m_o.reshape(-1), s_o_full.reshape(-1)])
+        cat = torch.distributions.Categorical(logits=logits)
+        action = cat.sample().item()
+        # Collect statistics
+        q = torch.cat([m_o.reshape(-1), s_o.reshape(-1)])
+        stats = (q[action].item(), action, torch.logsumexp(q, 0).item())
+        
+        return action, stats
+    
+    def _execute_action(self, m: BlockMoleculeDataExtended, action: int, 
+                       t: int, min_blocks: int, max_blocks: int) -> Tuple[Optional[Tuple], bool]:
+        """
+        Execute action and return sample with terminal flag.
+        
+        Returns:
+            Tuple of (sample, is_terminal)
+        """
+        sample = []
+        # Terminal action
+        if t >= min_blocks and action == 0:
+            r, raw_r = self._get_reward(m)
+            sample.append(((m,), ((-1, 0),), r, m, 2))
+            return sample, True
+        
+        # Non-terminal action
+        action = max(0, action - 1)
+        action_tuple = (action % self.mdp.num_blocks, action // self.mdp.num_blocks)
+        
+        m_old = m
+        try:
+            m_new = self.mdp.add_block_to(m, *action_tuple)
+        except Exception as e:
+            self.logger.error(f"Failed to add block: {e}")
+            # Return terminal state on error
+            r, raw_r = self._get_reward(m_old)
+            sample.append(((m_old,), ((-1, 0),), r, m_old, 2))
+            return sample, True
+        
+        # Check if molecule is complete
+        if (len(m_new.blocks) and not len(m_new.stems)) or t == max_blocks - 1:
+            done_type = 2 if len(m_new.stems) == 0 else 1
+            r, raw_r = self._get_reward(m_new)
+            if self.ignore_parents:
+                sample.append(((m_old,), (action_tuple,), r, m_new, done_type))
+            else:
+                parents, actions = zip(*self.mdp.parents(m_new))
+                sample.append((parents, actions, r, m_new, done_type))
+            return sample, True
+        else:
+            if self.ignore_parents:
+                sample.append(((m_old,), (action_tuple,), 0, m_new, 0))
+            else:
+                parents, actions = zip(*self.mdp.parents(m_new))
+                sample.append((parents, actions, 0, m_new, 0))
+            return sample, False
 
 class RolloutWorker_TB(RolloutWorker):
     """RolloutWorker specialized for Trajectory Balance training."""
@@ -828,7 +902,9 @@ def train_generative_model_with_oracle(
     # Initialize components
     device = args.device
     # Use appropriate RolloutWorker based on criterion
-    if args.criterion in ['TB', 'Reinforce', 'SubTB']:
+    if args.criterion == 'LeakGFN':
+        rollout_worker = RolloutWorker_Leak(args, bpath, oracle, device)
+    elif args.criterion in ['TB', 'Reinforce', 'SubTB']:
         rollout_worker = RolloutWorker_TB(args, bpath, oracle, device)
     else:
         rollout_worker = RolloutWorker(args, bpath, oracle, device)
@@ -928,11 +1004,15 @@ def train_loop(
         
         # Log to wandb/tensorboard based on criterion
         args.logger.add_object('Loss/train', loss[0], use_context=False)
-        if args.criterion == 'FM':
-            # FMGFlowNet returns (loss, term_loss, flow_loss, pruned_loss)
+        if args.criterion == 'LeakGFN':
+            # FMGFlowNet returns (loss, term_loss, flow_loss, chem_loss)
             args.logger.add_object('Loss/term', loss[1], use_context=False)
             args.logger.add_object('Loss/flow', loss[2], use_context=False)
-            args.logger.add_object('Loss/leaky', loss[3], use_context=False)
+            args.logger.add_object('Loss/chem', loss[3], use_context=False)
+        elif args.criterion == 'FM':
+            # FMGFlowNet returns (loss, term_loss, flow_loss)
+            args.logger.add_object('Loss/term', loss[1], use_context=False)
+            args.logger.add_object('Loss/flow', loss[2], use_context=False)
         elif args.criterion in ['TB', 'SubTB']:
             # TBGFlowNet/SubTBGFlowNet returns (loss, logZ)
             args.logger.add_object('Loss/logZ', loss[1], use_context=False)
@@ -949,8 +1029,10 @@ def train_loop(
             elapsed = time.time() - time_last_log
             
             # Format log message based on criterion
-            if args.criterion == 'FM':
-                loss_str = f'Loss={avg_loss[0]:.4f}, Term={avg_loss[1]:.4f}, Flow={avg_loss[2]:.4f}, Leaky={avg_loss[3]:.4f}'
+            if args.criterion == 'LeakGFN':
+                loss_str = f'Loss={avg_loss[0]:.4f}, Term={avg_loss[1]:.4f}, Flow={avg_loss[2]:.4f}, chem={avg_loss[3]:.4f}'
+            elif args.criterion == 'FM':
+                loss_str = f'Loss={avg_loss[0]:.4f}, Term={avg_loss[1]:.4f}, Flow={avg_loss[2]:.4f}'
             elif args.criterion in ['TB', 'SubTB']:
                 loss_str = f'Loss={avg_loss[0]:.4f}, logZ={avg_loss[1]:.4f}'
             else:  # Reinforce
@@ -1126,7 +1208,9 @@ def main(args):
     ))
     
     # Initialize Generator
-    if args.criterion == 'TB':
+    if args.criterion == 'LeakGFN':
+        generator = LeakFMGFlowNet(args, args.bpath)
+    elif args.criterion == 'TB':
         generator = TBGFlowNet(args, args.bpath)
     elif args.criterion == 'FM':
         generator = FMGFlowNet(args, args.bpath)

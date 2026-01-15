@@ -32,6 +32,10 @@ class GraphAgent(nn.Module):
         self.stem2pred = nn.Sequential(nn.Linear(nemb * 2 + nvec_2, nemb), nn.LeakyReLU(),
                                        nn.Linear(nemb, nemb), nn.LeakyReLU(),
                                        nn.Linear(nemb, out_per_stem)) 
+        self.leaky_stem2pred = nn.Sequential(nn.Linear(nemb * 2 + nvec_2, nemb), nn.LeakyReLU(),
+                                       nn.Linear(nemb, nemb), nn.LeakyReLU(),
+                                       nn.Linear(nemb, out_per_stem))
+        self.sigmoid = nn.Sigmoid()
         self.global2pred = nn.Sequential(nn.Linear(nemb, nemb), nn.LeakyReLU(),
                                          nn.Linear(nemb, out_per_mol))
         #self.set2set = Set2Set(nemb, processing_steps=3)
@@ -40,8 +44,9 @@ class GraphAgent(nn.Module):
         self.training_steps = 0
         self.categorical_style = 'softmax'
         self.escort_p = 6
+        self.relu = nn.ReLU()
 
-    def forward(self, graph_data, vec_data=None, do_stems=True):
+    def forward(self, graph_data, vec_data=None, do_stems=True, return_leaky=False):
         blockemb, stememb, bondemb = self.embeddings
         graph_data.x = blockemb(graph_data.x)
         if do_stems:
@@ -82,7 +87,12 @@ class GraphAgent(nn.Module):
                                           graph_data.stemtypes,
                                           vec_data[graph_data.stems_batch]], 1)
 
-            stem_preds = self.stem2pred(stem_out_cat)
+            stem_preds_full = self.stem2pred(stem_out_cat) 
+            sigmoid_preds = torch.clamp(self.sigmoid(self.leaky_stem2pred(stem_out_cat)), min=1e-20)
+            stem_preds = stem_preds_full + torch.log(sigmoid_preds)
+            # stem_preds = torch.log(self.relu(exp_stem_preds - exp_stem_preds_leaky) + 1e-20)
+            if return_leaky:
+                stem_preds = (stem_preds, stem_preds_full)
         else:
             stem_preds = None
         mol_preds = self.global2pred(

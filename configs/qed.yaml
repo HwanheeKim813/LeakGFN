@@ -2,35 +2,34 @@
 
 # General Settings
 device: 'cuda'
-seed: 42
+seed: 1
 run: 0
 save: True
-log_dir: './checkpoints/soo'
+log_dir: './checkpoints'
 include_nblocks: False
 num_samples: 1000
 floatX: 'float32'
 sample_iterations: 1000
 bpath: './gflownet/data/blocks_105.json'
 test_mols: './gflownet/data/test_mols_6062.pkl.gz'
-wandb_project: 'GFlowMoA_SOO'
+wandb_project: 'LeakGFN'
 # Objectives
-objectives: 'drd2'
+objectives: 'qed'
 
 # GFlowNet Settings
 min_blocks: 2
 max_blocks: 8
-num_iterations: 30000
-criterion: 'FM'
+num_iterations: 10000
+criterion: 'LeakGFN'
 learning_rate: 0.0005
 Z_learning_rate: 0.005
-clip_grad: 0.0
+clip_grad: 0
 trajectories_mbsize: 8
 offline_mbsize: 0
 hindsight_mbsize: 0
 reward_min: 0.01
-reward_norm: 0.1
-reward_bin: 0.5
-reward_exp: 5
+reward_norm: 0.8
+reward_exp: 6
 reward_exp_ramping: 0
 
 # TB Hyperparameters
@@ -40,13 +39,12 @@ partition_init: 30
 log_reg_c: 0.00000000000000000003  # (0.01/0.2)**15
 balanced_loss: true
 leaf_coef: 10
-pruned_coef: 0
 
 # Architecture
 repr_type: 'block_graph'
 model_version: 'v4'
 num_conv_steps: 8
-nemb: 256
+nemb: 128
 weight_decay: 0
 random_action_prob: 0.05
 bootstrap_tau: 0
