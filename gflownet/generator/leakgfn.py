@@ -99,8 +99,8 @@ class LeakFMGFlowNet(nn.Module):
                       .index_add_(0, pb, torch.exp(qsa_p)))  # pb is the parents' batch index
         inflow = torch.log(exp_inflow + self.log_reg_c)
         exp_outflow = self.model.sum_output(s, torch.exp(stem_out_s), torch.exp(mol_out_s[:, 0]))
-        outflow_plus_r = torch.log(self.log_reg_c + r * (d!=0) + exp_outflow * (d==0))
-
+        log_outflow = torch.log(self.log_reg_c + exp_outflow)
+        log_r = torch.log(r + 1e-10)
         qsa_p_full = self.model.index_output_by_action(
             p, stem_out_p_full, mol_out_p[:, 0], a)
         exp_inflow_full = (torch.zeros((ntransitions,), device=qsa_p_full.device, dtype=qsa_p_full.dtype)
@@ -109,18 +109,11 @@ class LeakFMGFlowNet(nn.Module):
         exp_outflow_full = self.model.sum_output(s, torch.exp(stem_out_s_full), torch.exp(mol_out_s[:, 0]))
         outflow_plus_r_full = torch.log(self.log_reg_c + r * (d==2) + exp_outflow_full * (d!=2))
 
-        if self.do_nblocks_reg:
-            losses = _losses = ((inflow - outflow_plus_r) /
-                                (s.nblocks * self.max_blocks)).pow(2)
-        else:
-            l_loss = _losses = (inflow - outflow_plus_r).pow(2)
-            f_loss = (inflow_full - outflow_plus_r_full).pow(2)
-            # pruned_loss += (torch.exp(mol_out_s[:, 0][d==1]) - torch.log(self.log_reg_c + r)[d==1]).pow(2)
-            # pruned_loss = (outflow_plus_r_pruned-torch.log(torch.tensor(self.log_reg_c))).pow(2)
-            # pruned_losses = outflow_plus_r_pruned.pow(2)
-
-        term_loss = (l_loss * (d!=0)).sum() / ((d!=0).sum() + 1e-20)  # terminal nodes
-        flow_loss = (l_loss * (d==0)).sum() / ((d==0).sum() + 1e-20)  # non-terminal nodes
+        l_conservation_loss = (inflow - log_outflow).pow(2)
+        l_terminal_loss = (inflow - log_r).pow(2)
+        f_loss = (inflow_full - outflow_plus_r_full).pow(2)
+        term_loss = (l_terminal_loss * (d!=0)).sum() / ((d!=0).sum() + 1e-20)  # terminal nodes
+        flow_loss = (l_conservation_loss * (d!=2)).sum() / ((d!=2).sum() + 1e-20)  # non-terminal nodes
         full_loss = (f_loss * (d!=2)).sum() / ((d!=2).sum() + 1e-20)  # non-terminal nodes
         if self.balanced_loss:
             # leaky_loss = leaky_term_loss * self.leaf_coef + leaky_flow_loss

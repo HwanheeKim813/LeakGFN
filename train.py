@@ -686,9 +686,11 @@ class RolloutWorker_Leak(RolloutWorker):
             r, raw_r = self._get_reward(m_new)
             if self.ignore_parents:
                 sample.append(((m_old,), (action_tuple,), r, m_new, done_type))
+                sample.append(((m_new,), ((-1, 0),), r, m_new, 2))
             else:
                 parents, actions = zip(*self.mdp.parents(m_new))
                 sample.append((parents, actions, r, m_new, done_type))
+                sample.append(((m_new,), ((-1, 0),), r, m_new, 2))
             return sample, True
         else:
             if self.ignore_parents:
@@ -906,7 +908,7 @@ def train_generative_model_with_oracle(
         rollout_worker = RolloutWorker_Leak(args, bpath, oracle, device)
     elif args.criterion in ['TB', 'Reinforce', 'SubTB']:
         rollout_worker = RolloutWorker_TB(args, bpath, oracle, device)
-    else:
+    elif args.criterion == 'FM':
         rollout_worker = RolloutWorker(args, bpath, oracle, device)
     
     # Load test molecules if available
