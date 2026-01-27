@@ -81,7 +81,7 @@ bash train.sh
 |----------|---------|-------------|
 | `--config_file` | - | Path to YAML configuration file |
 | `--seed` | 42 | Random seed for reproducibility |
-| `--log_dir` | `./checkpoints/soo` | Directory to save checkpoints and logs |
+| `--log_dir` | `./checkpoints` | Directory to save checkpoints and logs |
 | `--device` | `cuda` | Device to use (`cuda` or `cpu`) |
 | `--num_iterations` | 30000 | Number of training iterations |
 | `--criterion` | `FM` | Training criterion (`FM`, `TB`, `SubTB`) |
