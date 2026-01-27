@@ -4,7 +4,8 @@ echo "### START DATE=$(date)"
 echo "### HOSTNAME=$(hostname)"
 echo "### CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
 
-methods_list=('LeakGFN' 'FM' 'TB' 'SubTB' 'DB')
+# methods_list=('LeakGFN' 'FM' 'TB' 'SubTB' 'DB')
+methods_list=('SubTB' 'TB' 'FM' 'LeakGFN')
 oracle_list=('jnk3' 'gsk3b' 'drd2' 'sa' 'qed')
 for METHOD in "${methods_list[@]}"
 do
