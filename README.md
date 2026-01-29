@@ -1,18 +1,31 @@
 # LeakGFN
 
-**Leaky GFlowNet for Molecular Optimization**
+**Robust Molecular Generation in Generative Flow Networks via Flow Decomposition**
 
-This repository contains the official implementation of LeakGFN, a GFlowNet-based framework for molecular optimization with leaky exploration mechanism.
+This repository contains the official implementation of LeakGFN, a dual-head GFlowNet architecture that addresses the flow leakage problem caused by trajectory truncation in molecular generation.
 
 ## Overview
 
-LeakGFN extends the standard GFlowNet framework with a leaky exploration mechanism to improve diversity and sample efficiency in molecular optimization tasks. The framework supports multiple training objectives including:
+Generative Flow Networks (GFlowNets) sample diverse molecules proportionally to a reward function. However, the vast chemical space necessitates truncating trajectory length, forcing models to treat incomplete molecular fragments as terminal states alongside valid molecules. This **flow leakage** distorts the learned distribution by allocating probability mass to chemically meaningless states.
 
-- **JNK3**: c-Jun N-terminal kinase 3 inhibition
-- **GSK3β**: Glycogen synthase kinase 3 beta inhibition  
-- **DRD2**: Dopamine receptor D2 binding affinity
-- **QED**: Quantitative Estimate of Drug-likeness
-- **SA**: Synthetic Accessibility
+**LeakGFN** solves this problem through flow decomposition:
+
+- **Chemical Head** ($F_{\text{chem}}$): Models flow over the entire chemical space without truncation constraints
+- **Valid Head** ($\lambda$): Estimates the fraction of flow reaching valid molecules within the truncation boundary
+- **Valid Flow**: $F_{\text{valid}} = F_{\text{chem}} \cdot \lambda$ — used exclusively for sampling
+
+The valid head implicitly learns molecular reachability through asymmetric terminal treatment, requiring **no explicit supervision**.
+
+<p align="center">
+  <img src="figures/main_new.png" width="90%">
+</p>
+
+## Key Features
+
+- **Flow Decomposition**: Separates valid flow from leak flow to learn the correct distribution over accessible molecules
+- **Implicit Reachability Learning**: The $\lambda$ head learns to predict reachability without explicit labels
+- **Plug-and-Play**: Integrates seamlessly into existing GFlowNet frameworks (TacoGFN, HN-GFN, etc.)
+- **Robustness**: Graceful degradation under varying $L_{\max}$ settings, unlike trajectory-level methods
 
 ## Requirements
 
@@ -24,16 +37,13 @@ LeakGFN extends the standard GFlowNet framework with a leaky exploration mechani
 - NumPy
 - Pandas
 - PyYAML
-- wandb (for experiment tracking)
+- wandb (optional, for experiment tracking)
 
 ### Installation
 
 ```bash
 # Clone the repository
-# Download the repository from:
-# https://anonymous.4open.science/r/LeakGFN-464A
-# Then extract and navigate to the directory
-
+git clone https://anonymous.4open.science/r/LeakGFN-464A
 cd LeakGFN
 
 # Create conda environment
@@ -48,31 +58,32 @@ pip install -r pip_requirement.txt
 
 ## Usage
 
-### Basic Training
+### Training
 
-Train LeakGFN on a specific molecular optimization task:
+Train LeakGFN on molecular optimization tasks:
 
 ```bash
-python train.py --config_file ./configs/JNK3.yaml --seed 1 --log_dir ./checkpoints/LeakGFN/seed_1
+# JNK3 kinase inhibition
+python train.py --config_file ./configs/JNK3.yaml --seed 1 --log_dir ./checkpoints/LeakGFN/JNK3/seed_1
+
+# GSK3β kinase inhibition
+python train.py --config_file ./configs/GSK3B.yaml --seed 1 --log_dir ./checkpoints/LeakGFN/GSK3B/seed_1
+
+# DRD2 activity
+python train.py --config_file ./configs/DRD2.yaml --seed 1 --log_dir ./checkpoints/LeakGFN/DRD2/seed_1
+
+# QED (drug-likeness)
+python train.py --config_file ./configs/QED.yaml --seed 1 --log_dir ./checkpoints/LeakGFN/QED/seed_1
+
+# SA (synthetic accessibility)
+python train.py --config_file ./configs/SA.yaml --seed 1 --log_dir ./checkpoints/LeakGFN/SA/seed_1
 ```
 
-### Available Configurations
-
-| Config File | Target | Description |
-|-------------|--------|-------------|
-| `JNK3.yaml` | JNK3 | c-Jun N-terminal kinase 3 inhibitor |
-| `GSK3B.yaml` | GSK3β | Glycogen synthase kinase 3 beta inhibitor |
-| `DRD2.yaml` | DRD2 | Dopamine receptor D2 binding |
-| `QED.yaml` | QED | Drug-likeness optimization |
-| `SA.yaml` | SA | Synthetic accessibility optimization |
-
-### Training with Different Criteria
-
-LeakGFN supports multiple GFlowNet training criteria:
+### Reproducing Main Results (Table 1)
 
 ```bash
+# Run all experiments with 3 seeds
 bash train.sh
-
 ```
 
 ### Key Arguments
@@ -82,13 +93,31 @@ bash train.sh
 | `--config_file` | - | Path to YAML configuration file |
 | `--seed` | 42 | Random seed for reproducibility |
 | `--log_dir` | `./checkpoints` | Directory to save checkpoints and logs |
-| `--device` | `cuda` | Device to use (`cuda` or `cpu`) |
 | `--num_iterations` | 30000 | Number of training iterations |
-| `--criterion` | `FM` | Training criterion (`FM`, `TB`, `SubTB`) |
-| `--learning_rate` | 5e-4 | Learning rate |
-| `--min_blocks` | 2 | Minimum number of building blocks |
-| `--max_blocks` | 8 | Maximum number of building blocks |
-| `--reward_exp` | 12 | Reward exponent for shaping |
+| `--max_blocks` | 8 | Maximum trajectory length ($L_{\max}$) |
+| `--alpha` | 1.0 | Chemical flow loss weight |
+| `--gamma` | 10 | Terminal loss coefficient |
+
+## Results
+
+### Single-Objective Molecular Optimization (Table 1)
+
+| Method | JNK3 | GSK3β | DRD2 | QED | SA |
+|--------|------|-------|------|-----|-----|
+| GFN-FM | 0.403 | 0.716 | 0.775 | 0.926 | 0.922 |
+| **LeakGFN (Ours)** | **0.653** | **0.760** | 0.829 | **0.926** | **0.923** |
+
+*HM score (↑) averaged over 3 random seeds. LeakGFN achieves state-of-the-art on 4/5 tasks.*
+
+### Robustness to $L_{\max}$ (Table 2, DRD2)
+
+| Method | $L_{\max}$=6 | $L_{\max}$=8 | $L_{\max}$=10 | $L_{\max}$=12 |
+|--------|--------------|--------------|---------------|---------------|
+| GFN-DB | 0.926 | **0.934** | 0.136 | 0.096 |
+| GFN-TB | 0.906 | 0.933 | 0.132 | 0.106 |
+| **LeakGFN** | 0.865 | 0.797 | **0.517** | **0.435** |
+
+*LeakGFN maintains reasonable performance at large $L_{\max}$ where trajectory-level methods collapse.*
 
 ## Project Structure
 
@@ -102,88 +131,55 @@ LeakGFN/
 │   ├── QED.yaml
 │   └── SA.yaml
 ├── gflownet/
-│   ├── generator/              # GFlowNet model implementations
-│   │   ├── leakgfn.py # Leaky GFlowNet (main)
-│   │   └── gfn.py
+│   ├── generator/
+│   │   ├── leakgfn.py          # LeakGFN dual-head architecture
+│   │   └── gfn.py              # Base GFlowNet
 │   ├── oracle/                 # Molecular scoring oracles
-│   │   ├── oracle.py
-│   │   ├── models.py
-│   │   └── scorer/
-│   ├── data/                   # Building blocks and test data
-│   │   ├── blocks_105.json
-│   │   └── test_mols_6062.pkl.gz
-│   ├── utils/                  # Utility functions
-│   │   ├── arguments.py
-│   │   ├── metrics.py
-│   │   ├── logging.py
-│   │   └── utils.py
-│   ├── mol_mdp_ext.py          # Molecular MDP definition
-│   ├── model_block.py          # Block-based molecular model
-│   └── model_atom.py           # Atom-based molecular model
-├── checkpoints/                # Saved model checkpoints
-└── results.ipynb               # Results analysis notebook
+│   ├── data/
+│   │   └── blocks_105.json     # Fragment vocabulary (105 building blocks)
+│   └── utils/
+├── figures/
+└── results.ipynb               # Results analysis
 ```
 
 ## Configuration
 
-Configuration files (YAML) support the following key parameters:
+Key parameters in YAML config files:
 
 ```yaml
-# General Settings
-device: 'cuda'
-seed: 42
-save: True
+# LeakGFN-specific settings
+alpha: 1.0              # Chemical flow loss weight (Eq. in paper)
+gamma: 10               # Terminal loss coefficient
 
-# Objectives
-objectives: 'jnk3'  # Single objective
-
-# GFlowNet Settings
-min_blocks: 2
-max_blocks: 8
+# GFlowNet settings  
+min_blocks: 2           # Minimum trajectory length
+max_blocks: 8           # Maximum trajectory length (L_max)
 num_iterations: 30000
-criterion: 'FM'
-learning_rate: 0.0005
-
-# Reward Shaping
-reward_min: 0.01
-reward_norm: 0.2
-reward_exp: 12
 
 # Architecture
-repr_type: 'block_graph'
-nemb: 256
-num_conv_steps: 8
-```
+nemb: 256               # Hidden dimension
+num_conv_steps: 8       # Message passing steps
 
-## Experiment Tracking
-
-LeakGFN integrates with [Weights & Biases](https://wandb.ai/) for experiment tracking:
-
-```bash
-# Enable wandb logging (default)
-python train.py --config_file ./configs/JNK3.yaml
-
-# Disable wandb (debug mode)
-python train.py --config_file ./configs/JNK3.yaml --debug True
+# Reward shaping (task-specific)
+reward_norm: 0.5        # Normalization constant
+reward_exp: 8           # Reward exponent
 ```
 
 ## Citation
 
-If you find this code useful in your research, please cite:
-
 ```bibtex
-@article{leakgfn2026,
-  title={LeakGFN: Leaky GFlowNet for Molecular Optimization},
-  author={},
-  journal={},
+@inproceedings{leakgfn2026,
+  title={LeakGFN: Robust Molecular Generation in Generative Flow Networks via Flow Decomposition},
+  author={Anonymous},
+  booktitle={International Conference on Machine Learning (ICML)},
   year={2026}
 }
 ```
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License.
 
 ## Acknowledgements
 
-This implementation builds upon the GFlowNet framework. We thank the authors of the original GFlowNet papers for their foundational work.
+This implementation builds upon the GFlowNet framework for molecular generation.
