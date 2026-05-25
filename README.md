@@ -170,9 +170,9 @@ reward_exp: 8           # Reward exponent
 ```bibtex
 @inproceedings{leakgfn2026,
   title={LeakGFN: Robust Molecular Generation in Generative Flow Networks via Flow Decomposition},
-  author={Anonymous},
-  booktitle={International Conference on Machine Learning (ICML)},
-  year={2026}
+  author={Hwanhee Kim, Seungyeon Choi, Sanghyun Park},
+  booktitle={Proceedings of the 43rd International Conference on Machine Learning (ICML)},
+  year={Accepted to ICML 2026}
 }
 ```
 
